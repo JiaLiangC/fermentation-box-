@@ -2,8 +2,8 @@
 #include <Wire.h>
 #include <DallasTemperature.h>
 #include <Adafruit_AHTX0.h>
-#include <uFire_SHT20.h>
-#include <Adafruit_GFX.h>
+//#include <uFire_SHT20.h>
+//#include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <MsTimer2.h>
 #include <PID_v1.h>
@@ -16,14 +16,17 @@
 double Setpoint, Input, Output;
 
 //Define the aggressive and conservative Tuning Parameters
-//double aggKp=4, aggKi=0.2, aggKd=1;
-double aggKp=5000, aggKi=0.2, aggKd=0;
-//double consKp=1, consKi=0.05, consKd=0.25;
-double consKp=4000, consKi=400, consKd=0;
+//这里的kp 5000x(温差)+kix(温差) ，WindowSize 给的6秒，输出比WindowSize大就打开加热器，比如温差为2 ，那么始终打开，
+// 比如温差为1，那么5000 在WindowSize 的前5S都小与6000，所以6秒的窗口中打开5S，PID输出其实就是6S的时间窗口中打开多久的开关。
+double aggKp = 5000, aggKi = 0.2, aggKd = 0;
+
+//温差为1，那么1*4000 输出大概四千几，就是加热6秒的窗口中加热4s,
+//问题在于0.5的时候，输出大概2000多，加热片和风扇刚启动还没来得及做功就关了。所以调整积分项很大。保证差0.5度的时候，至少加热3-4秒
+double consKp = 4000, consKi = 400, consKd = 0;
 //差2度至少加热5s
 
-long WindowSize =6000;
-long negWindowSize =-6000;
+long WindowSize = 6000;
+long negWindowSize = -6000;
 unsigned long windowStartTime;
 
 //Specify the links and initial tuning parameters
@@ -62,33 +65,9 @@ PID myPID(&Input, &Output, &Setpoint, aggKp, aggKi, aggKd, DIRECT);
 //y = (48 - 14)/2 = 34 / 2 = 17
 
 
-
-//【中断模式】：就是你的中断触发方式。在大多数arduino上有以下四种触发方式：
-//LOW               低电平触发
-//CHANGE            电平变化，高电平变低电平、低电平变高电平
-//RISING            上升沿触发
-//FALLING           下降沿触发
-//HIGH              高电平触发(该中断模式仅适用于Arduino due)
-//  attachInterrupt(digitalPinToInterrupt(TACH_PIN), CountTachPulse, FALLING);
-
-
-/*
-  pwm 制冷制热风扇
-  功率继电器控制 ptc 通断
-  功率继电器控制 半导体制冷片推荐，降温和除湿功能
-  LCD 5110显示
-  sht20 温度湿度
-
-  风扇可以单独控制通风
-
-  盖子可以设计两个，一个做水果干，一个保温发酵箱
-*/
-
 /*功能，
-   制冷模式，
-   通风模式
-   热风烘干模式
-
+   天贝模式，
+   记忆功能，掉电重启后从上次的地方继续开始
 */
 
 
@@ -98,15 +77,14 @@ PID myPID(&Input, &Output, &Setpoint, aggKp, aggKi, aggKd, DIRECT);
   correct voltage to the module.
 */
 
-/*    SCK  - Pin 8
-       MOSI - Pin 9
-       DC   - Pin 10
-       CS   - Pin 12
-       RST  - Pin 11
+/*    SCK  - Pin  2
+       MOSI - Pin 3
+       DC   - Pin 4
+       CS   - Pin 5
+       RST  - Pin 6
 */
 
-// Adafruit_PCD8544(CLK,DIN,D/C,CE,RST);
-Adafruit_PCD8544 display = Adafruit_PCD8544(2, 3, 4, 5, 6); //LCD 5110 pin
+Adafruit_PCD8544 display = Adafruit_PCD8544(2, 3, 4, 5, 6); //LCD 5110 pin （CLK,DIN,D/C,CE,RST）
 
 
 const unsigned long UPDATE_INTERVAL = 200;  //风扇测速更新间隔
@@ -266,56 +244,64 @@ void setup()
   sensors.begin(); //初始化总线
   sensors.setWaitForConversion(false); //设置为非阻塞模式
 
+  //加热制冷初始化
   pinMode(heaterPin, OUTPUT);
   pinMode(coolerPin, OUTPUT);
 
+  //天贝流程初始化 TODO 设置一个队列，装入结构体，每次执行完后弹出，执行下一个。
   tempahProcessInit_test();
-   
-   windowStartTime = millis();
+
+  //pid 设置初始化
+  pidInit();
+
+}
+
+void pidInit() {
+  windowStartTime = millis();
   myPID.SetOutputLimits(negWindowSize, WindowSize);
   myPID.SetSampleTime(500);
   //turn the PID on
   myPID.SetMode(AUTOMATIC);
-  
 }
 
 void tempahProcessInit() {
   TempahProcess1.time_sec = HOUR * 17;
   TempahProcess1.targetTemp = 25.0;
   TempahProcess1.actice_time = 0;
-  
+
   TempahProcess0.time_sec = HOUR * 13;
   TempahProcess0.targetTemp = 30.0;
   TempahProcess0.actice_time = 0;
 }
 
+
 void tempahProcessInit_test() {
   TempahProcess1.time_sec = MINUTES * 30;
-  TempahProcess1.targetTemp = 24.0;
+  TempahProcess1.targetTemp = 20.0;
   TempahProcess1.actice_time = 0;
 
   TempahProcess0.time_sec = MINUTES * 2;
-  TempahProcess0.targetTemp = 37.0;
+  TempahProcess0.targetTemp = 20.0;
   TempahProcess0.actice_time = 0;
 }
 
 
 void temp_control(int targetTemp)
 {
-//  sensors_event_t humidity, temp;
+  //  sensors_event_t humidity, temp;
   aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
   volatile int  current_temp = temp.temperature;
   volatile int  error = targetTemp - current_temp;
 
   volatile int abs_error =  abs(error);
 
-  Serial.println("temp_control abs_error:"+(String)abs_error);
+  Serial.println("temp_control abs_error:" + (String)abs_error);
   if ((targetTemp > current_temp) && (abs_error > 0.5)) {
     //open heater
     digitalWrite(heaterPin, HIGH);
     //open heater fan
     fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
-  
+
   } else if ((targetTemp < current_temp) && (abs_error > 0.5)) {
     Serial.println("cooler");
     digitalWrite(coolerPin, HIGH);
@@ -336,25 +322,22 @@ void temp_control(int targetTemp)
 
 void loop()
 {
-//  digitalWrite(coolerPin, HIGH);
-//sensors_event_t humidity, temp;
+
   if (TempahProcess0.actice_time < TempahProcess0.time_sec) {
-    
     //temp_control(TempahProcess0.targetTemp);
-    Setpoint=TempahProcess0.targetTemp;
+    Setpoint = TempahProcess0.targetTemp;
     pidTemControl();
     TempahProcess0.actice_time += UPDATE_INTERVAL;
-    Displaytemp(TempahProcess0.targetTemp,0,TempahProcess0.actice_time,TempahProcess0.time_sec);
-    
+    Displaytemp(TempahProcess0.targetTemp, 0, TempahProcess0.actice_time, TempahProcess0.time_sec);
+
   } else if ((TempahProcess0.actice_time >= TempahProcess0.time_sec) && (TempahProcess1.actice_time < TempahProcess1.time_sec) ) {
-    
-//    temp_control(TempahProcess1.targetTemp);
-    Setpoint=TempahProcess1.targetTemp;
+    //    temp_control(TempahProcess1.targetTemp);
+    Setpoint = TempahProcess1.targetTemp;
     pidTemControl();
     TempahProcess1.actice_time += UPDATE_INTERVAL;
-    Displaytemp(TempahProcess1.targetTemp,1,TempahProcess1.actice_time,TempahProcess1.time_sec);
+    Displaytemp(TempahProcess1.targetTemp, 1, TempahProcess1.actice_time, TempahProcess1.time_sec);
   } else if (TempahProcess1.actice_time >= TempahProcess1.time_sec) {
-    Serial.println("xxxxxxxxxxxxx");
+    Serial.println("process finished,all device closed. ");
     digitalWrite(coolerPin, LOW);
     digitalWrite(heaterPin, LOW);
     fanOff(COOLER_PWM_PIN);
@@ -366,104 +349,92 @@ void loop()
 
 
 //调整到目标温度后gap >1 才调整
-void pidTemControl1(){
-  fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
-}
+void pidTemControl() {
 
-void pidTemControl(){
+  // int Setpoint, Input, Output;
+  static double offset = 0;
 
-// int Setpoint, Input, Output;
-  static double offset=0;
-  
   aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
-  
+
   double  current_temp = temp.temperature;
-  
+
   Input = current_temp;
-  Serial.println("current_temp:"+(String)current_temp);
-   
-  double error = Setpoint-Input;
-  
+
+  double error = Setpoint - Input;
+
   volatile double  gap = abs(error); //distance away from setpoint
 
-  if(gap<0.2){
-    offset=1.5;
-   }
+  if (gap < 0.2) {
+    offset = 1.5;
+  }
 
-  if(gap<=offset){
-     Serial.println("(gap<=offset: :gap:"+(String)gap+" offset:"+(String)offset);
-      digitalWrite(coolerPin, LOW);
-      digitalWrite(heaterPin, LOW);
-      fanOff(COOLER_PWM_PIN);
-      fanOff(HEATER_PWM_PIN);
-      return;
-    }
+  if (gap <= offset) {
+    Serial.println("(gap<=offset  gap:" + (String)gap + " offset:" + (String)offset);
+    digitalWrite(coolerPin, LOW);
+    digitalWrite(heaterPin, LOW);
+    fanOff(COOLER_PWM_PIN);
+    fanOff(HEATER_PWM_PIN);
+    return;
+  }
 
   
   //走到这里说明 gap>1.5 了，就重置T 为0 ，这样小的误差也会走过去
-  offset=0;
-  Serial.println("abs error:"+(String)gap+"  offset:"+(String)offset);
-  
+  offset = 0;
+  Serial.println("current_temp:" + (String)current_temp+ " gap:" + (String)gap + " offset:" + (String)offset);
 
-  
-  if (gap < 2)
-  {  //we're close to setpoint, use conservative tuning parameters
+  if (gap < 1.5)
+  { 
+    //距离目标很近，使用分段的保守的PID参数
     myPID.SetTunings(consKp, consKi, consKd);
-  }else
-  {
-    //we're far from setpoint, use aggressive tuning parameters
-     myPID.SetTunings(aggKp, aggKi, aggKd);
+  } else{
+    myPID.SetTunings(aggKp, aggKi, aggKd);
   }
 
   myPID.Compute();
 
   if (millis() - windowStartTime > WindowSize)
   { //time to shift the Relay Window
-     windowStartTime += WindowSize;
+    windowStartTime += WindowSize;
   }
 
 
-//  if (Output < millis() - windowStartTime) digitalWrite(RELAY_PIN, HIGH);
-//  else digitalWrite(RELAY_PIN, LOW);
-   double elapsed =  millis() - windowStartTime;
+  double elapsed =  millis() - windowStartTime;
+  
   if ((Setpoint > current_temp) && (Output > elapsed)) {
-     digitalWrite(coolerPin, LOW);
-     fanOff(COOLER_PWM_PIN);
-     
-      //open heater
-      Serial.println("heater and Output:"+(String)Output);
-      Serial.println("heater and elapsed:"+(String)elapsed);
-      digitalWrite(heaterPin, HIGH);
-      //open heater fan
-      fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+    digitalWrite(coolerPin, LOW);
+    fanOff(COOLER_PWM_PIN);
 
-    } else if ((Setpoint < current_temp) &&  (abs(Output) > elapsed)) {
-      digitalWrite(heaterPin, LOW);
-      fanOff(HEATER_PWM_PIN);
-      
-      Serial.println("cooler and Output:"+(String)Output);
-      Serial.println("cooler and elapsed:"+(String)elapsed);
-      digitalWrite(coolerPin, HIGH);
-      fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 130);//48%
-    } else if (abs(Output) < elapsed) {
-      Serial.println("(Output < millis() - windowStartTime: :output:"+(String)Output+" elapsed:"+(String)elapsed);
-      digitalWrite(coolerPin, LOW);
-      digitalWrite(heaterPin, LOW);
-      fanOff(COOLER_PWM_PIN);
-      fanOff(HEATER_PWM_PIN);
-    }
+    //open heater
+    Serial.println("heater and Output:" + (String)Output+" elapsed:" + (String)elapsed);
+    digitalWrite(heaterPin, HIGH);
+    //open heater fan
+    fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+
+  } else if ((Setpoint < current_temp) &&  (abs(Output) > elapsed)) {
+    digitalWrite(heaterPin, LOW);
+    fanOff(HEATER_PWM_PIN);
+
+    Serial.println("cooler and Output:" + (String)Output+" elapsed:" + (String)elapsed);
+    digitalWrite(coolerPin, HIGH);
+    fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 130);//48%
+  } else if (abs(Output) < elapsed) {
+    Serial.println("(Output < millis() - windowStartTime :output:" + (String)Output + " current_temp:" + (String)current_temp+ " gap:" + (String)gap + " offset:" + (String)offset);
+    digitalWrite(coolerPin, LOW);
+    digitalWrite(heaterPin, LOW);
+    fanOff(COOLER_PWM_PIN);
+    fanOff(HEATER_PWM_PIN);
+  }
 }
 
 
-void Displaytemp(int  targetTemp,int process, unsigned long activeTimeMills, unsigned long totaltimeMills)
-{  
+void Displaytemp(int  targetTemp, int process, unsigned long activeTimeMills, unsigned long totaltimeMills)
+{
   char tempStr[5];
   char humidityStr[5];
 
   aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
   dtostrf(temp.temperature, 2, 1, tempStr);
   dtostrf(humidity.relative_humidity, 2, 1, humidityStr);
-  
 
   display.clearDisplay();
   display.setTextSize(1);
@@ -472,14 +443,14 @@ void Displaytemp(int  targetTemp,int process, unsigned long activeTimeMills, uns
 
   display.print("tC " + (String)targetTemp);
   display.println( " eC " + (String)tempStr);
-  
-  display.println("humidity:"+(String)humidityStr + " %RH");
-  
-  display.println("proc:"+(String)process);
-  
-  display.print("t:"+(String)(totaltimeMills/1000)+"m");
-  display.print("  act:"+(String)(activeTimeMills/1000)+"m");
-  
+
+  display.println("humidity:" + (String)humidityStr + " %RH");
+
+  display.println("proc:" + (String)process);
+
+  display.print("t:" + (String)(totaltimeMills / 1000) + "m");
+  display.print("  act:" + (String)(activeTimeMills / 1000) + "m");
+
   display.display();
 
 }
