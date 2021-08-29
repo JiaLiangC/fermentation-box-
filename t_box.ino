@@ -29,8 +29,14 @@ long WindowSize = 6000;
 long negWindowSize = -6000;
 unsigned long windowStartTime;
 
+static int heaterStatus=0;
+static int coolerStatus=0;
+
+
 //Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &Setpoint, aggKp, aggKi, aggKd, DIRECT);
+
+//制冷的PID需要调整，因为制冷很不灵敏
 
 
 /*
@@ -194,23 +200,37 @@ void periodicalAirFlow()
   MsTimer2::start();
 }
 
+void periodicalAirFlowOff()
+{
+  MsTimer2::set(500, ariFlow); // 500ms period
+  MsTimer2::stop();
+}
+
+
+
+
 void ariFlow()
 {
+  static unsigned long ariFlowWindowStartTime = 0;
 
-  static unsigned long started_time = 0;
-  static unsigned long stoped_time = 0;
+  // 学习数字PID控制中的窗口PWM控制法
+  int ariFlowWindowSize = 6*MINUTES;
+  int pulse_ration =2*MINUTES;
 
-  //刚开始，或者停止时间大于1分钟了
-  if (heater_fan_state == 0 && (started_time == 0 || millis() - stoped_time > (1000 * 60.0)))
-  {
-    started_time = millis();
+  if (millis() - ariFlowWindowStartTime > ariFlowWindowSize)
+  { //time to shift the Relay Window
+    ariFlowWindowStartTime += ariFlowWindowSize;
   }
 
-  //运行5分钟后，停一分钟, 已经停止了的状态就不停
-  if (heater_fan_state == 1 && (millis() - started_time > (1000 * 60.0 * 5)))
+  
+  double elapsed =  millis() - windowStartTime;
+  
+  if ((elapsed < pulse_ration) && heaterStatus==0)
   {
-    fanOff(HEATER_PWM_PIN);
-    stoped_time = millis();
+  fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+  }else{
+      //运行2分钟后，停4分钟, 已经停止了的状态就不停
+     fanOff(HEATER_PWM_PIN);
   }
 }
 
@@ -283,6 +303,28 @@ void tempahProcessInit_test() {
   TempahProcess0.time_sec = MINUTES * 2;
   TempahProcess0.targetTemp = 20.0;
   TempahProcess0.actice_time = 0;
+}
+
+
+void heaterOpen(){
+  digitalWrite(heaterPin, HIGH);
+  heaterStatus=1;
+}
+
+void heaterOff(){
+  digitalWrite(heaterPin, LOW);
+  heaterStatus=0;
+}
+
+void coolerOpen(){
+  digitalWrite(coolerPin, HIGH);
+  coolerStatus=1;
+}
+
+void coolerOff()
+{
+  digitalWrite(coolerPin, LOW);
+  coolerStatus=0;
 }
 
 
@@ -370,7 +412,9 @@ void pidTemControl() {
 
   if (gap <= offset) {
     Serial.println("(gap<=offset  gap:" + (String)gap + " offset:" + (String)offset);
-    digitalWrite(coolerPin, LOW);
+    coolerOff();
+    //digitalWrite(coolerPin, LOW);
+    heaterOff();
     digitalWrite(heaterPin, LOW);
     fanOff(COOLER_PWM_PIN);
     fanOff(HEATER_PWM_PIN);
@@ -392,35 +436,37 @@ void pidTemControl() {
 
   myPID.Compute();
 
-  if (millis() - windowStartTime > WindowSize)
-  { //time to shift the Relay Window
-    windowStartTime += WindowSize;
-  }
-
+  if (millis() - windowStartTime > WindowSize){ windowStartTime += WindowSize;}
 
   double elapsed =  millis() - windowStartTime;
-  
+
+
+  //加热
   if ((Setpoint > current_temp) && (Output > elapsed)) {
-    digitalWrite(coolerPin, LOW);
+    coolerOff();
     fanOff(COOLER_PWM_PIN);
 
-    //open heater
     Serial.println("heater and Output:" + (String)Output+" elapsed:" + (String)elapsed);
-    digitalWrite(heaterPin, HIGH);
-    //open heater fan
+    heaterOpen();
     fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
 
-  } else if ((Setpoint < current_temp) &&  (abs(Output) > elapsed)) {
-    digitalWrite(heaterPin, LOW);
+  }//制冷
+  else if ((Setpoint < current_temp) &&  (abs(Output) > elapsed)) 
+  {
+    heaterOff();
     fanOff(HEATER_PWM_PIN);
 
     Serial.println("cooler and Output:" + (String)Output+" elapsed:" + (String)elapsed);
-    digitalWrite(coolerPin, HIGH);
+
+    coolerOpen();
     fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 130);//48%
+    fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 150);//48%
   } else if (abs(Output) < elapsed) {
     Serial.println("(Output < millis() - windowStartTime :output:" + (String)Output + " current_temp:" + (String)current_temp+ " gap:" + (String)gap + " offset:" + (String)offset);
-    digitalWrite(coolerPin, LOW);
-    digitalWrite(heaterPin, LOW);
+
+    coolerOff();
+    heaterOff();
+    
     fanOff(COOLER_PWM_PIN);
     fanOff(HEATER_PWM_PIN);
   }
