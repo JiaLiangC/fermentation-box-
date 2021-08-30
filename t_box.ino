@@ -3,7 +3,6 @@
 #include <DallasTemperature.h>
 #include <Adafruit_AHTX0.h>
 //#include <uFire_SHT20.h>
-//#include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <MsTimer2.h>
 #include <PID_v1.h>
@@ -97,12 +96,10 @@ const unsigned long HOUR = MINUTES * 60;
 //制热风扇
 const int HEATER_POWER_PIN = 7;      // Fan power ssr
 const int HEATER_PWM_PIN = 9;        // Timer1 pwm pin 制热风扇转速
-int heater_fan_state = 0;
 
 //制冷风扇
 const int COOLER_PWM_PIN = 10;      // Timer1 pwm pin 制冷风扇转速
 const int COOLER_POWER_PIN = 12;    // Fan power ssr switch
-int cooler_fan_state = 0;
 
 #define heaterPin A0    //PTC  heater switch pin
 //TODO  DA 功率控制
@@ -137,16 +134,14 @@ typedef struct {
 void displayInit()
 {
   display.begin();
-  // you can change the contrast around to adapt the displayfor the best viewing!
-  display.setContrast(50);
+  display.setContrast(50); // you can change the contrast around to adapt the displayfor the best viewing!
 }
 
 void pidInit() {
   windowStartTime = millis();
-  myPID.SetOutputLimits(negWindowSize, WindowSize);
-  myPID.SetSampleTime(500);
-  //turn the PID on
-  myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(negWindowSize, WindowSize);//设置输出范围
+  myPID.SetSampleTime(500); //采样时间设置
+  myPID.SetMode(AUTOMATIC); // PID 开
 }
 
 
@@ -168,15 +163,11 @@ void fanOpenWithPWMPulseRatio(int pin, int ration) {
   switch (pin) {
     case HEATER_PWM_PIN:
       OCR1A = ration;
-      heater_fan_state = 1;
-
       pinMode(HEATER_PWM_PIN, OUTPUT);
       digitalWrite(HEATER_POWER_PIN, HIGH);
       break;
     case COOLER_PWM_PIN:
       OCR1B = ration;
-      cooler_fan_state = 1;
-
       pinMode(COOLER_PWM_PIN, OUTPUT);
       digitalWrite(COOLER_POWER_PIN, HIGH);
       break;
@@ -191,12 +182,10 @@ void fanOff(int pin)
 {
   // digitalWrite 内部实现会调用 turnOffPWM 清空定时器设置，关闭PWM
   if (pin == HEATER_PWM_PIN) {
-    heater_fan_state = 0;
     digitalWrite(HEATER_POWER_PIN, LOW);
   }
   if (pin == COOLER_PWM_PIN)
   {
-    cooler_fan_state = 0;
     digitalWrite(COOLER_POWER_PIN, LOW);
   }
 }
@@ -239,11 +228,6 @@ void ariFlow()
 // TODO 外部环境温度湿度，时间单独用个Arduino 去做, 明年升级的时候换个大一点的板子
 //目前只支持天贝模式, 30度发酵13小时，25度发酵18小时
 
-
-
-process TempahProcess0;
-process TempahProcess1;
-
 process TempahProcess[2] =
 {
     {
@@ -263,11 +247,9 @@ void setup()
 {
   Serial.begin(9600);
 
-  //Aht20Init();
-  aht.begin();
+  aht.begin(); //Aht20Init();
 
-  //LCD init
-  displayInit();
+  displayInit(); //LCD init
 
   //18b20 init
   sensors.begin(); //初始化总线
@@ -277,9 +259,9 @@ void setup()
   pinMode(heaterPin, OUTPUT);
   pinMode(coolerPin, OUTPUT);
 
-  //天贝流程初始化 TODO 设置一个队列，装入结构体，每次执行完后弹出，执行下一个。
-  //pid 设置初始化
-  pidInit();
+  pidInit(); //pid 设置初始化
+
+  periodicalAirFlow();
 
 }
 
@@ -297,8 +279,8 @@ void loop()
     pidTemControl();
     tempahP.active_time += UPDATE_INTERVAL;
     Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
-    if tempahP.active_time > TempahProcess0.time_sec i+=1;
-
+    if tempahP.active_time > TempahProcess0.time_sec  i+=1;
+    if(i>2) i=2;
     delay(UPDATE_INTERVAL);
 }
 
