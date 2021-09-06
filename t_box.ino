@@ -12,7 +12,12 @@
 #define PIN_INPUT 0
 #define PIN_OUTPUT 3
 
-#define countof_macro(x) (sizeof((x)) / sizeof(x)[0])
+#define ArrayLength(x) (sizeof(x)/sizeof(x[0]))
+
+
+
+
+//
 
 double Setpoint, Input, Output;
 
@@ -107,8 +112,8 @@ const int HEATER_PWM_PIN = 9;        // Timer1 pwm pin 制热风扇转速
 const int COOLER_PWM_PIN = 10;      // Timer1 pwm pin 制冷风扇转速
 const int COOLER_POWER_PIN = 12;    // Fan power ssr switch
 
-const int MODE_KEY_PIN = 8;
-const int UP_KEY_PIN = 11;
+const int MODE_KEY_PIN = 11;
+const int UP_KEY_PIN = 8;
 const int DOWN_KEY_PIN = 13;
 
 static unsigned int  keymode = 0;
@@ -144,40 +149,9 @@ typedef struct {
 
 
 void keyInit() {
-    pinMode(MODE_KEY_PIN, INPUT_PULLUP); //设置按键管脚上拉输入模式
-    pinMode(UP_KEY_PIN, INPUT_PULLUP); //设置按键管脚上拉输入模式
-    pinMode(DOWN_KEY_PIN, INPUT_PULLUP); //设置按键管脚上拉输入模式
-}
-
-void test() {
-
-    //keymode 0 是 手动模式，1 是自动模式
-    if (digitalRead(MODE_KEY_PIN) == LOW) { // 若按键被按下
-        delay(80); //等待跳过按键抖动的不稳定过程
-        if (digitalRead(MODE_KEY_PIN) == LOW) // 若按键被按下
-        {
-            keymode = (1 - keymode);
-        }
-    }
-
-    if (keymode == 0) {
-        if (digitalRead(UP_KEY_PIN) == LOW) { // 若按键被按下
-            delay(80); //等待跳过按键抖动的不稳定过程
-            if (digitalRead(UP_KEY_PIN) == LOW) // 若按键被按下
-            {
-                CustomProcess.targetTemp += 1;
-            }
-        }
-
-        if (digitalRead(DOWN_KEY_PIN) == LOW) { // 若按键被按下
-            delay(80); //等待跳过按键抖动的不稳定过程
-            if (digitalRead(DOWN_KEY_PIN) == LOW) // 若按键被按下
-            {
-                CustomProcess.targetTemp -= 1;
-            }
-        }
-    }
-
+    pinMode(MODE_KEY_PIN, INPUT); //设置按键管脚上拉输入模式
+    pinMode(UP_KEY_PIN, INPUT); //设置按键管脚上拉输入模式
+    pinMode(DOWN_KEY_PIN, INPUT); //设置按键管脚上拉输入模式
 }
 
 void displayInit() {
@@ -240,8 +214,8 @@ void ariFlow() {
     static unsigned long ariFlowWindowStartTime = 0;
 
     // 学习数字PID控制中的窗口PWM控制法
-    int ariFlowWindowSize = 6 * MINUTES;
-    int pulse_ration = 2 * MINUTES;
+    long ariFlowWindowSize = 6 * MINUTES;
+    long pulse_ration = 2 * MINUTES;
 
     if (millis() - ariFlowWindowStartTime > ariFlowWindowSize) { //time to shift the Relay Window
         ariFlowWindowStartTime += ariFlowWindowSize;
@@ -257,12 +231,12 @@ void ariFlow() {
 }
 
 void periodicalAirFlow() {
-    MsTimer2::set(SECOND, ariFlow); // 500ms period
+    MsTimer2::set(50, executeTasks); // 50ms period
     MsTimer2::start();
 }
 
 void periodicalAirFlowOff() {
-    MsTimer2::set(SECOND, ariFlow); // 500ms period
+    MsTimer2::set(50, executeTasks); // 50ms period
     MsTimer2::stop();
 }
 
@@ -272,22 +246,25 @@ unsigned int task_length = 2;
 process TempahProcess[2] =
         {
                 {
+                        .active_time = 0,
                         .time_sec = MINUTES * 2,
-                        .targetTemp = 36.0,
-                        .active_time = 0
+                        .targetTemp = 36
+
                 },
                 {
+                        .active_time = 0,
                         .time_sec = MINUTES * 10,
-                        .targetTemp = 24.0,
-                        .active_time = 0
+                        .targetTemp = 24
+
                 }
         };
 
 process CustomProcess[1]={
         {
+                .active_time = 0,
                 .time_sec = HOUR * 24,
-                .targetTemp = 25.0,
-                .active_time = 0
+                .targetTemp = 25
+
         }
 };
 
@@ -335,32 +312,48 @@ void executeTasks() {
     //1 s 一个周期
     static unsigned long ct;
     ct++;
+
+    if (ct % 4 == 0)keyPressCheck();
+
+    //if (ct % 4 == 0) MainTask();
+
     //2个周期执行一次，2s 一次
-    if (ct % 2 == 0) ariFlow();
+    //if (ct % 40 == 0) ariFlow();
 
     //100个周期，1x1000ms*60*5,5min 一次
-    if (ct % 300) saveTaskStatus();
+    //if (ct % 6000) saveTaskStatus();
+
 }
 
 
 void setup() {
     Serial.begin(9600);
 
-    aht.begin(); //Aht20Init();
+    //aht.begin(); //Aht20Init();
 
-    displayInit(); //LCD init
+    //displayInit(); //LCD init
 
     //18b20 init
-    sensors.begin(); //初始化总线
-    sensors.setWaitForConversion(false); //设置为非阻塞模式
+    // sensors.begin(); //初始化总线
+    // sensors.setWaitForConversion(false); //设置为非阻塞模式
 
     //加热制冷初始化
-    pinMode(heaterPin, OUTPUT);
-    pinMode(coolerPin, OUTPUT);
+//    pinMode(heaterPin, OUTPUT);
+//    pinMode(coolerPin, OUTPUT);
 
-    pidInit(); //pid 设置初始化
+//    pidInit(); //pid 设置初始化
+
+    keyInit();
+
+    if(digitalRead(MODE_KEY_PIN) == HIGH){
+        Serial.println("xxxxxxxxxx");
+    }else{
+        Serial.println("1111111111");
+    }
 
     periodicalAirFlow();
+
+
 
 }
 
@@ -513,14 +506,19 @@ float get18b20tempC() {
 }
 
 void loop() {
+}
 
-    int size = countof_macro();
+void MainTask() {
+
+    int size = 0;
     static int i = 0;
 
     if (keymode == 0) {
         tempahP = CustomProcess[i];
+        size = ArrayLength(CustomProcess);
     } else if (keymode == 1) {
         tempahP = TempahProcess[i];
+        size = ArrayLength(TempahProcess);
     }
 
     pidTemControl(tempahP.targetTemp);
@@ -530,5 +528,26 @@ void loop() {
     if (tempahP.active_time > TempahProcess[i].time_sec)
         i += 1;
     if (i > size) i = size;
-    delay(UPDATE_INTERVAL);
+    //delay(UPDATE_INTERVAL);
+}
+
+void keyPressCheck() {
+
+    if (digitalRead(UP_KEY_PIN) == HIGH) { // 若按键被按下
+        delay(50); //等待跳过按键抖动的不稳定过程
+        if (digitalRead(UP_KEY_PIN) == HIGH) // 若按键被按下
+        {
+            CustomProcess[0].targetTemp += 1;
+            Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
+        }
+    }
+
+    if (digitalRead(DOWN_KEY_PIN) == HIGH) { // 若按键被按下
+        delay(50); //等待跳过按键抖动的不稳定过程
+        if (digitalRead(DOWN_KEY_PIN) == HIGH) // 若按键被按下
+        {
+            CustomProcess[0].targetTemp -= 1;
+            Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
+        }
+    }
 }
