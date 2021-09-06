@@ -6,10 +6,13 @@
 #include <Adafruit_PCD8544.h>
 #include <MsTimer2.h>
 #include <PID_v1.h>
+#include <EEPROM.h>
 
 
 #define PIN_INPUT 0
 #define PIN_OUTPUT 3
+
+#define countof_macro(x) (sizeof((x)) / sizeof(x)[0])
 
 double Setpoint, Input, Output;
 
@@ -27,14 +30,16 @@ long WindowSize = 6000;
 long negWindowSize = -6000;
 unsigned long windowStartTime;
 
-static int heaterStatus=0;
-static int coolerStatus=0;
+static int heaterStatus = 0;
+static int coolerStatus = 0;
+
 
 
 //Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &Setpoint, aggKp, aggKi, aggKd, DIRECT);
 
 //TODO 制冷的PID需要调整，因为制冷很不灵敏
+
 
 
 /*
@@ -87,6 +92,7 @@ PID myPID(&Input, &Output, &Setpoint, aggKp, aggKi, aggKd, DIRECT);
 Adafruit_PCD8544 display = Adafruit_PCD8544(2, 3, 4, 5, 6); //LCD 5110 pin （CLK,DIN,D/C,CE,RST）
 
 
+
 const unsigned long UPDATE_INTERVAL = 200;  //风扇测速更新间隔
 
 const unsigned long SECOND = 1000 * 1;
@@ -100,6 +106,12 @@ const int HEATER_PWM_PIN = 9;        // Timer1 pwm pin 制热风扇转速
 //制冷风扇
 const int COOLER_PWM_PIN = 10;      // Timer1 pwm pin 制冷风扇转速
 const int COOLER_POWER_PIN = 12;    // Fan power ssr switch
+
+const int MODE_KEY_PIN = 8;
+const int UP_KEY_PIN = 11;
+const int DOWN_KEY_PIN = 13;
+
+static unsigned int  keymode = 0;
 
 #define heaterPin A0    //PTC  heater switch pin
 //TODO  DA 功率控制
@@ -125,143 +137,230 @@ Adafruit_AHTX0 aht;
 sensors_event_t humidity, temp;
 
 typedef struct {
-  unsigned long active_time;
-  unsigned long time_sec;
-  unsigned long targetTemp;
+    unsigned long active_time;
+    unsigned long time_sec;
+    unsigned long targetTemp;
 } process;
 
 
-void displayInit()
-{
-  display.begin();
-  display.setContrast(50); // you can change the contrast around to adapt the displayfor the best viewing!
+void keyInit() {
+    pinMode(MODE_KEY_PIN, INPUT_PULLUP); //设置按键管脚上拉输入模式
+    pinMode(UP_KEY_PIN, INPUT_PULLUP); //设置按键管脚上拉输入模式
+    pinMode(DOWN_KEY_PIN, INPUT_PULLUP); //设置按键管脚上拉输入模式
+}
+
+void test() {
+
+    //keymode 0 是 手动模式，1 是自动模式
+    if (digitalRead(MODE_KEY_PIN) == LOW) { // 若按键被按下
+        delay(80); //等待跳过按键抖动的不稳定过程
+        if (digitalRead(MODE_KEY_PIN) == LOW) // 若按键被按下
+        {
+            keymode = (1 - keymode);
+        }
+    }
+
+    if (keymode == 0) {
+        if (digitalRead(UP_KEY_PIN) == LOW) { // 若按键被按下
+            delay(80); //等待跳过按键抖动的不稳定过程
+            if (digitalRead(UP_KEY_PIN) == LOW) // 若按键被按下
+            {
+                CustomProcess.targetTemp += 1;
+            }
+        }
+
+        if (digitalRead(DOWN_KEY_PIN) == LOW) { // 若按键被按下
+            delay(80); //等待跳过按键抖动的不稳定过程
+            if (digitalRead(DOWN_KEY_PIN) == LOW) // 若按键被按下
+            {
+                CustomProcess.targetTemp -= 1;
+            }
+        }
+    }
+
+}
+
+void displayInit() {
+    display.begin();
+    display.setContrast(50); // you can change the contrast around to adapt the displayfor the best viewing!
 }
 
 void pidInit() {
-  windowStartTime = millis();
-  myPID.SetOutputLimits(negWindowSize, WindowSize);//设置输出范围
-  myPID.SetSampleTime(500); //采样时间设置
-  myPID.SetMode(AUTOMATIC); // PID 开
+    windowStartTime = millis();
+    myPID.SetOutputLimits(negWindowSize, WindowSize);//设置输出范围
+    myPID.SetSampleTime(500); //采样时间设置
+    myPID.SetMode(AUTOMATIC); // PID 开
 }
 
 
 // Timer1 使用ICR1作为比较器，所以有两路PWM输出, 控制风扇电源
 void fanOpenWithPWMPulseRatio(int pin, int ration) {
-  TCCR1A = 0;           // undo the configuration done by...
-  TCCR1B = 0;           // ...the Arduino core library
-  TCNT1  = 0;           // reset timer
-  TCCR1A = _BV(COM1A1)  // non-inverted PWM on ch. A
-           | _BV(COM1B1)  // same on ch; B
-           | _BV(WGM11);  // mode 10: ph. correct PWM, TOP = ICR1
-  TCCR1B = _BV(WGM13)   // ditto
-           | _BV(CS10);   // prescaler = 1
-  ICR1   = 320;         // TOP = 320
+    TCCR1A = 0;           // undo the configuration done by...
+    TCCR1B = 0;           // ...the Arduino core library
+    TCNT1 = 0;           // reset timer
+    TCCR1A = _BV(COM1A1)  // non-inverted PWM on ch. A
+             | _BV(COM1B1)  // same on ch; B
+             | _BV(WGM11);  // mode 10: ph. correct PWM, TOP = ICR1
+    TCCR1B = _BV(WGM13)   // ditto
+             | _BV(CS10);   // prescaler = 1
+    ICR1 = 320;         // TOP = 320
 
-  pinMode(COOLER_POWER_PIN, OUTPUT);
-  pinMode(HEATER_POWER_PIN, OUTPUT);
+    pinMode(COOLER_POWER_PIN, OUTPUT);
+    pinMode(HEATER_POWER_PIN, OUTPUT);
 
-  switch (pin) {
-    case HEATER_PWM_PIN:
-      OCR1A = ration;
-      pinMode(HEATER_PWM_PIN, OUTPUT);
-      digitalWrite(HEATER_POWER_PIN, HIGH);
-      break;
-    case COOLER_PWM_PIN:
-      OCR1B = ration;
-      pinMode(COOLER_PWM_PIN, OUTPUT);
-      digitalWrite(COOLER_POWER_PIN, HIGH);
-      break;
-    default:
-      break;
-  }
+    switch (pin) {
+        case HEATER_PWM_PIN:
+            OCR1A = ration;
+            pinMode(HEATER_PWM_PIN, OUTPUT);
+            digitalWrite(HEATER_POWER_PIN, HIGH);
+            break;
+        case COOLER_PWM_PIN:
+            OCR1B = ration;
+            pinMode(COOLER_PWM_PIN, OUTPUT);
+            digitalWrite(COOLER_POWER_PIN, HIGH);
+            break;
+        default:
+            break;
+    }
 }
 
 
 //关闭PWM，清零对应的寄存器位, 直接关电源
-void fanOff(int pin)
-{
-  // digitalWrite 内部实现会调用 turnOffPWM 清空定时器设置，关闭PWM
-  if (pin == HEATER_PWM_PIN) {
-    digitalWrite(HEATER_POWER_PIN, LOW);
-  }
-  if (pin == COOLER_PWM_PIN)
-  {
-    digitalWrite(COOLER_POWER_PIN, LOW);
-  }
+void fanOff(int pin) {
+    // digitalWrite 内部实现会调用 turnOffPWM 清空定时器设置，关闭PWM
+    if (pin == HEATER_PWM_PIN) {
+        digitalWrite(HEATER_POWER_PIN, LOW);
+    }
+    if (pin == COOLER_PWM_PIN) {
+        digitalWrite(COOLER_POWER_PIN, LOW);
+    }
 }
 
-void periodicalAirFlow()
-{
-  MsTimer2::set(500, ariFlow); // 500ms period
-  MsTimer2::start();
+void ariFlow() {
+    static unsigned long ariFlowWindowStartTime = 0;
+
+    // 学习数字PID控制中的窗口PWM控制法
+    int ariFlowWindowSize = 6 * MINUTES;
+    int pulse_ration = 2 * MINUTES;
+
+    if (millis() - ariFlowWindowStartTime > ariFlowWindowSize) { //time to shift the Relay Window
+        ariFlowWindowStartTime += ariFlowWindowSize;
+    }
+    double elapsed = millis() - windowStartTime;
+
+    if ((elapsed < pulse_ration) && heaterStatus == 0) {
+        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+    } else {
+        //运行2分钟后，停4分钟, 已经停止了的状态就不停
+        fanOff(HEATER_PWM_PIN);
+    }
 }
 
-void periodicalAirFlowOff()
-{
-  MsTimer2::set(500, ariFlow); // 500ms period
-  MsTimer2::stop();
+void periodicalAirFlow() {
+    MsTimer2::set(SECOND, ariFlow); // 500ms period
+    MsTimer2::start();
 }
 
-void ariFlow()
-{
-  static unsigned long ariFlowWindowStartTime = 0;
-
-  // 学习数字PID控制中的窗口PWM控制法
-  int ariFlowWindowSize = 6*MINUTES;
-  int pulse_ration = 2*MINUTES;
-
-  if (millis() - ariFlowWindowStartTime > ariFlowWindowSize)
-  { //time to shift the Relay Window
-    ariFlowWindowStartTime += ariFlowWindowSize;
-  }
-  double elapsed =  millis() - windowStartTime;
-
-  if ((elapsed < pulse_ration) && heaterStatus==0)
-  {
-    fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
-  }else{
-      //运行2分钟后，停4分钟, 已经停止了的状态就不停
-     fanOff(HEATER_PWM_PIN);
-  }
+void periodicalAirFlowOff() {
+    MsTimer2::set(SECOND, ariFlow); // 500ms period
+    MsTimer2::stop();
 }
 
 // TODO 外部环境温度湿度，时间单独用个Arduino 去做, 明年升级的时候换个大一点的板子
 //目前只支持天贝模式, 30度发酵13小时，25度发酵18小时
-
+unsigned int task_length = 2;
 process TempahProcess[2] =
-{
-    {
-        .time_sec = MINUTES * 2,
-        .targetTemp = 36.0,
-        .active_time = 0
-    },
-    {
-        .time_sec = MINUTES * 10,
-        .targetTemp = 24.0,
-        .active_time = 0
-    }
+        {
+                {
+                        .time_sec = MINUTES * 2,
+                        .targetTemp = 36.0,
+                        .active_time = 0
+                },
+                {
+                        .time_sec = MINUTES * 10,
+                        .targetTemp = 24.0,
+                        .active_time = 0
+                }
+        };
+
+process CustomProcess[1]={
+        {
+                .time_sec = HOUR * 24,
+                .targetTemp = 25.0,
+                .active_time = 0
+        }
 };
 
+void saveTaskStatus() {
+    int eeAddress = 0;
+    int flag = 123;
+    EEPROM.put(eeAddress, flag);
+    eeAddress += sizeof(int); //Move address to the next byte after float 'f'.
 
-void setup()
-{
-  Serial.begin(9600);
+    if (keymode == 0) {
+        EEPROM.put(eeAddress, CustomProcess);
+    }else if (keymode == 1){
+        EEPROM.put(eeAddress, TempahProcess);
+    }
+}
 
-  aht.begin(); //Aht20Init();
+void readAndRecover() {
+    int eeAddr = 0;
+    int flag = 0;
+    double  tTmp = 0;
 
-  displayInit(); //LCD init
 
-  //18b20 init
-  sensors.begin(); //初始化总线
-  sensors.setWaitForConversion(false); //设置为非阻塞模式
+    process TProcess[2];
+    process CProcess[1];
+    EEPROM.get(eeAddr, flag);
 
-  //加热制冷初始化
-  pinMode(heaterPin, OUTPUT);
-  pinMode(coolerPin, OUTPUT);
+    //存储过数据
+    if (flag == 123) {
+        if (keymode == 0) {
+            EEPROM.get(eeAddr, CProcess);
+            CustomProcess[0] = CProcess[0];
+        }else if (keymode == 1){
+            eeAddr += sizeof(int); //Move address to the next byte after float 'f'.
+            EEPROM.get(eeAddr, TProcess);
+            TempahProcess[0] = TProcess[0];
+            TempahProcess[1] = TProcess[1];
+        }
+    } else {
+        Serial.println("no data save in eepRom");
+    }
+}
 
-  pidInit(); //pid 设置初始化
 
-  periodicalAirFlow();
+void executeTasks() {
+    //1 s 一个周期
+    static unsigned long ct;
+    ct++;
+    //2个周期执行一次，2s 一次
+    if (ct % 2 == 0) ariFlow();
+
+    //100个周期，1x1000ms*60*5,5min 一次
+    if (ct % 300) saveTaskStatus();
+}
+
+
+void setup() {
+    Serial.begin(9600);
+
+    aht.begin(); //Aht20Init();
+
+    displayInit(); //LCD init
+
+    //18b20 init
+    sensors.begin(); //初始化总线
+    sensors.setWaitForConversion(false); //设置为非阻塞模式
+
+    //加热制冷初始化
+    pinMode(heaterPin, OUTPUT);
+    pinMode(coolerPin, OUTPUT);
+
+    pidInit(); //pid 设置初始化
+
+    periodicalAirFlow();
 
 }
 
@@ -271,158 +370,165 @@ void setup()
 
 process tempahP;
 
-void loop()
-{
-    static int i=0;
-    tempahP = TempahProcess[i];
-    Setpoint = tempahP.targetTemp;
-    pidTemControl();
-    tempahP.active_time += UPDATE_INTERVAL;
-    Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
-    if tempahP.active_time > TempahProcess0.time_sec  i+=1;
-    if(i>2) i=2;
-    delay(UPDATE_INTERVAL);
-}
 
 //调整到目标温度后gap >1 才调整
-void pidTemControl() {
-  static double offset = 0;
+void pidTemControl(double target) {
+    static double offset = 0;
+    Setpoint = tempahP.targetTemp;
 
-  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
+    aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
 
-  double  current_temp = temp.temperature;
+    double current_temp = temp.temperature;
 
-  Input = current_temp;
+    Input = current_temp;
 
-  double error = Setpoint - Input;
+    double error = Setpoint - Input;
 
-  volatile double  gap = abs(error); //distance away from setpoint
+    volatile double gap = abs(error); //distance away from setpoint
 
-  if (gap < 0.2) {
-    offset = 1.5;
-  }
+    if (gap < 0.2) {
+        offset = 1.5;
+    }
 
-  if (gap <= offset) {
-    Serial.println("(gap<=offset  gap:" + (String)gap + " offset:" + (String)offset);
-    coolerOff();
-    //digitalWrite(coolerPin, LOW);
-    heaterOff();
+    if (gap <= offset) {
+        Serial.println("(gap<=offset  gap:" + (String) gap + " offset:" + (String) offset);
+        coolerOff();
+        //digitalWrite(coolerPin, LOW);
+        heaterOff();
+        digitalWrite(heaterPin, LOW);
+        fanOff(COOLER_PWM_PIN);
+        fanOff(HEATER_PWM_PIN);
+        return;
+    }
+
+    //走到这里说明 gap>1.5 了，就重置T 为0 ，这样小的误差也会走过去
+    offset = 0;
+    Serial.println("current_temp:" + (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
+
+    if (gap < 1.5) {
+        //距离目标很近，使用分段的保守的PID参数
+        myPID.SetTunings(consKp, consKi, consKd);
+    } else {
+        myPID.SetTunings(aggKp, aggKi, aggKd);
+    }
+
+    myPID.Compute();
+
+    if (millis() - windowStartTime > WindowSize) { windowStartTime += WindowSize; }
+
+    double elapsed = millis() - windowStartTime;
+
+
+    //加热
+    if ((Setpoint > current_temp) && (Output > elapsed)) {
+        Serial.println("heater and Output:" + (String) Output + " elapsed:" + (String) elapsed);
+        coolerOff();
+        fanOff(COOLER_PWM_PIN);
+
+        heaterOpen();
+        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+
+    }//制冷
+    else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {
+        Serial.println("cooler and Output:" + (String) Output + " elapsed:" + (String) elapsed);
+        heaterOff();
+        fanOff(HEATER_PWM_PIN);
+
+        coolerOpen();
+        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 130);//48%
+        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 150);//48%
+    } else if (abs(Output) < elapsed) {
+        Serial.println("(Output < millis() - windowStartTime :output:" + (String) Output + " current_temp:" +
+                       (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
+
+        coolerOff();
+        heaterOff();
+
+        fanOff(COOLER_PWM_PIN);
+        fanOff(HEATER_PWM_PIN);
+    }
+}
+
+
+void Displaytemp(int targetTemp, int process, unsigned long activeTimeMills, unsigned long totaltimeMills) {
+    char tempStr[5];
+    char humidityStr[5];
+
+    aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
+    dtostrf(temp.temperature, 2, 1, tempStr);
+    dtostrf(humidity.relative_humidity, 2, 1, humidityStr);
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(BLACK);
+    display.setCursor(0, 0);
+
+    display.print("tC " + (String) targetTemp);
+    display.println(" eC " + (String) tempStr);
+
+    display.println("humidity:" + (String) humidityStr + " %RH");
+
+    display.println("proc:" + (String) process);
+
+    display.print("t:" + (String)(totaltimeMills / 1000) + "m");
+    display.print("  act:" + (String)(activeTimeMills / 1000) + "m");
+
+    display.display();
+
+}
+
+void heaterOpen() {
+    digitalWrite(heaterPin, HIGH);
+    heaterStatus = 1;
+}
+
+void heaterOff() {
     digitalWrite(heaterPin, LOW);
-    fanOff(COOLER_PWM_PIN);
-    fanOff(HEATER_PWM_PIN);
-    return;
-  }
-
-  //走到这里说明 gap>1.5 了，就重置T 为0 ，这样小的误差也会走过去
-  offset = 0;
-  Serial.println("current_temp:" + (String)current_temp+ " gap:" + (String)gap + " offset:" + (String)offset);
-
-  if (gap < 1.5)
-  { 
-    //距离目标很近，使用分段的保守的PID参数
-    myPID.SetTunings(consKp, consKi, consKd);
-  } else{
-    myPID.SetTunings(aggKp, aggKi, aggKd);
-  }
-
-  myPID.Compute();
-
-  if (millis() - windowStartTime > WindowSize){ windowStartTime += WindowSize;}
-
-  double elapsed =  millis() - windowStartTime;
-
-
-  //加热
-  if ((Setpoint > current_temp) && (Output > elapsed)) {
-    Serial.println("heater and Output:" + (String)Output+" elapsed:" + (String)elapsed);
-    coolerOff();
-    fanOff(COOLER_PWM_PIN);
-
-    heaterOpen();
-    fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
-
-  }//制冷
-  else if ((Setpoint < current_temp) &&  (abs(Output) > elapsed)) 
-  {
-    Serial.println("cooler and Output:" + (String)Output+" elapsed:" + (String)elapsed);
-    heaterOff();
-    fanOff(HEATER_PWM_PIN);
-
-    coolerOpen();
-    fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 130);//48%
-    fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 150);//48%
-  } else if (abs(Output) < elapsed) {
-    Serial.println("(Output < millis() - windowStartTime :output:" + (String)Output + " current_temp:" + (String)current_temp+ " gap:" + (String)gap + " offset:" + (String)offset);
-
-    coolerOff();
-    heaterOff();
-
-    fanOff(COOLER_PWM_PIN);
-    fanOff(HEATER_PWM_PIN);
-  }
+    heaterStatus = 0;
 }
 
-
-void Displaytemp(int  targetTemp, int process, unsigned long activeTimeMills, unsigned long totaltimeMills)
-{
-  char tempStr[5];
-  char humidityStr[5];
-
-  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
-  dtostrf(temp.temperature, 2, 1, tempStr);
-  dtostrf(humidity.relative_humidity, 2, 1, humidityStr);
-
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(BLACK);
-  display.setCursor(0, 0);
-
-  display.print("tC " + (String)targetTemp);
-  display.println( " eC " + (String)tempStr);
-
-  display.println("humidity:" + (String)humidityStr + " %RH");
-
-  display.println("proc:" + (String)process);
-
-  display.print("t:" + (String)(totaltimeMills / 1000) + "m");
-  display.print("  act:" + (String)(activeTimeMills / 1000) + "m");
-
-  display.display();
-
+void coolerOpen() {
+    digitalWrite(coolerPin, HIGH);
+    coolerStatus = 1;
 }
 
-void heaterOpen(){
-  digitalWrite(heaterPin, HIGH);
-  heaterStatus=1;
-}
-
-void heaterOff(){
-  digitalWrite(heaterPin, LOW);
-  heaterStatus=0;
-}
-
-void coolerOpen(){
-  digitalWrite(coolerPin, HIGH);
-  coolerStatus=1;
-}
-
-void coolerOff()
-{
-  digitalWrite(coolerPin, LOW);
-  coolerStatus=0;
+void coolerOff() {
+    digitalWrite(coolerPin, LOW);
+    coolerStatus = 0;
 }
 
 unsigned long CalculateRPM(int pin) {
-  unsigned long htime = pulseIn(pin, HIGH);
-  unsigned long  rpm = (1000000 * 60) / (htime * 4);
-  return rpm;
+    unsigned long htime = pulseIn(pin, HIGH);
+    unsigned long rpm = (1000000 * 60) / (htime * 4);
+    return rpm;
 }
 
 
 float get18b20tempC() {
-  // Serial.println("发起温度转换");
-  sensors.requestTemperatures(); //向总线上所有设备发送温度转换请求，默认情况下该方法会阻塞
-  float tempC = sensors.getTempCByIndex(0); //获取索引号0的传感器摄氏温度数据
-  //if (tempC != DEVICE_DISCONNECTED_C) //如果获取到的温度正常
-  return tempC;
+    // Serial.println("发起温度转换");
+    sensors.requestTemperatures(); //向总线上所有设备发送温度转换请求，默认情况下该方法会阻塞
+    float tempC = sensors.getTempCByIndex(0); //获取索引号0的传感器摄氏温度数据
+    //if (tempC != DEVICE_DISCONNECTED_C) //如果获取到的温度正常
+    return tempC;
+}
+
+void loop() {
+
+    int size = countof_macro();
+    static int i = 0;
+
+    if (keymode == 0) {
+        tempahP = CustomProcess[i];
+    } else if (keymode == 1) {
+        tempahP = TempahProcess[i];
+    }
+
+    pidTemControl(tempahP.targetTemp);
+    tempahP.active_time += UPDATE_INTERVAL;
+    Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
+
+    if (tempahP.active_time > TempahProcess[i].time_sec)
+        i += 1;
+    if (i > size) i = size;
+    delay(UPDATE_INTERVAL);
 }
