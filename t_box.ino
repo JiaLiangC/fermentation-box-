@@ -92,7 +92,7 @@ Adafruit_PCD8544 display = Adafruit_PCD8544(2, 3, 4, 5, 6); //LCD 5110 pin （CL
 
 
 
-const unsigned long UPDATE_INTERVAL = 200;  //风扇测速更新间隔
+const unsigned long UPDATE_INTERVAL = 300;  //风扇测速更新间隔
 
 const unsigned long SECOND = 1000 * 1;
 const unsigned long MINUTES = 60 * SECOND;
@@ -235,7 +235,6 @@ void periodicalAirFlowOff() {
 
 // TODO 外部环境温度湿度，时间单独用个Arduino 去做, 明年升级的时候换个大一点的板子
 //目前只支持天贝模式, 30度发酵13小时，25度发酵18小时
-unsigned int task_length = 2;
 
 process CustomProcess[1]={
         {
@@ -277,7 +276,7 @@ void executeTasks() {
     static unsigned long ct;
     ct++;
 
-    if (ct % 4 == 0)keyPressCheckTask();
+    if (ct % 4 == 0) keyPressCheckTask();
 
     //if (ct % 6 == 0) MainTask();
 
@@ -293,24 +292,24 @@ void executeTasks() {
 void setup() {
     Serial.begin(9600);
 
-    //aht.begin(); //Aht20Init();
+    aht.begin(); //Aht20Init();
 
-    //displayInit(); //LCD init
+    displayInit(); //LCD init
 
     //18b20 init
     // sensors.begin(); //初始化总线
     // sensors.setWaitForConversion(false); //设置为非阻塞模式
 
     //加热制冷初始化
-//    pinMode(heaterPin, OUTPUT);
-//    pinMode(coolerPin, OUTPUT);
+    pinMode(heaterPin, OUTPUT);
+    pinMode(coolerPin, OUTPUT);
 
-//    pidInit(); //pid 设置初始化
+    pidInit(); //pid 设置初始化
 
     keyInit();
 
     if(digitalRead(MODE_KEY_PIN) == HIGH){
-        Serial.println("xxxxxxxxxx");
+        Serial.println("0000000000");
     }else{
         Serial.println("1111111111");
     }
@@ -320,12 +319,11 @@ void setup() {
 }
 
 
-process tempahP;
 
 //调整到目标温度后gap >1 才调整
 void pidTemControl(double target) {
     static double offset = 0;
-    Setpoint = tempahP.targetTemp;
+    Setpoint = target;
 
     aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
 
@@ -400,6 +398,7 @@ void pidTemControl(double target) {
 
 
 void Displaytemp(int targetTemp, int process, unsigned long activeTimeMills, unsigned long totaltimeMills) {
+    Serial.println("Displaytemp");
     char tempStr[5];
     char humidityStr[5];
 
@@ -462,14 +461,16 @@ float get18b20tempC() {
 }
 
 void loop() {
+  MainTask();
 }
 
 void MainTask() {
-    tempahP = CustomProcess[0];
-    pidTemControl(tempahP.targetTemp);
+    process tempahP = CustomProcess[0];
+//    pidTemControl(tempahP.targetTemp);
     tempahP.active_time += UPDATE_INTERVAL;
     Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
-    //delay(UPDATE_INTERVAL);
+    Serial.println("asdfafsfs");
+    delay(UPDATE_INTERVAL);
 }
 
 void keyPressCheckTask() {
