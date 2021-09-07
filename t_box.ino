@@ -8,16 +8,10 @@
 #include <PID_v1.h>
 #include <EEPROM.h>
 
-
 #define PIN_INPUT 0
 #define PIN_OUTPUT 3
-
 #define ArrayLength(x) (sizeof(x)/sizeof(x[0]))
 
-
-
-
-//
 
 double Setpoint, Input, Output;
 
@@ -119,7 +113,6 @@ const int DOWN_KEY_PIN = 13;
 static unsigned int  keymode = 0;
 
 #define heaterPin A0    //PTC  heater switch pin
-//TODO  DA 功率控制
 #define coolerPin A1    //PTC  heater switch pin
 
 #define ONE_WIRE_BUS  A3              //ds18b20 pin
@@ -210,7 +203,7 @@ void fanOff(int pin) {
     }
 }
 
-void ariFlow() {
+void ariFlowTask() {
     static unsigned long ariFlowWindowStartTime = 0;
 
     // 学习数字PID控制中的窗口PWM控制法
@@ -243,21 +236,6 @@ void periodicalAirFlowOff() {
 // TODO 外部环境温度湿度，时间单独用个Arduino 去做, 明年升级的时候换个大一点的板子
 //目前只支持天贝模式, 30度发酵13小时，25度发酵18小时
 unsigned int task_length = 2;
-process TempahProcess[2] =
-        {
-                {
-                        .active_time = 0,
-                        .time_sec = MINUTES * 2,
-                        .targetTemp = 36
-
-                },
-                {
-                        .active_time = 0,
-                        .time_sec = MINUTES * 10,
-                        .targetTemp = 24
-
-                }
-        };
 
 process CustomProcess[1]={
         {
@@ -268,40 +246,26 @@ process CustomProcess[1]={
         }
 };
 
-void saveTaskStatus() {
+void saveStatusTask() {
     int eeAddress = 0;
     int flag = 123;
     EEPROM.put(eeAddress, flag);
     eeAddress += sizeof(int); //Move address to the next byte after float 'f'.
-
-    if (keymode == 0) {
-        EEPROM.put(eeAddress, CustomProcess);
-    }else if (keymode == 1){
-        EEPROM.put(eeAddress, TempahProcess);
-    }
+    EEPROM.put(eeAddress, CustomProcess);
 }
 
 void readAndRecover() {
     int eeAddr = 0;
     int flag = 0;
-    double  tTmp = 0;
 
-
-    process TProcess[2];
     process CProcess[1];
     EEPROM.get(eeAddr, flag);
 
+    eeAddr += sizeof(int);
     //存储过数据
     if (flag == 123) {
-        if (keymode == 0) {
-            EEPROM.get(eeAddr, CProcess);
-            CustomProcess[0] = CProcess[0];
-        }else if (keymode == 1){
-            eeAddr += sizeof(int); //Move address to the next byte after float 'f'.
-            EEPROM.get(eeAddr, TProcess);
-            TempahProcess[0] = TProcess[0];
-            TempahProcess[1] = TProcess[1];
-        }
+        EEPROM.get(eeAddr, CProcess);
+        CustomProcess[0] = CProcess[0];
     } else {
         Serial.println("no data save in eepRom");
     }
@@ -313,15 +277,15 @@ void executeTasks() {
     static unsigned long ct;
     ct++;
 
-    if (ct % 4 == 0)keyPressCheck();
+    if (ct % 4 == 0)keyPressCheckTask();
 
-    //if (ct % 4 == 0) MainTask();
+    //if (ct % 6 == 0) MainTask();
 
     //2个周期执行一次，2s 一次
-    //if (ct % 40 == 0) ariFlow();
+    //if (ct % 40 == 0) ariFlowTask();
 
-    //100个周期，1x1000ms*60*5,5min 一次
-    //if (ct % 6000) saveTaskStatus();
+    //100个周期，1x1000ms*60*5,25min 一次
+    //if (ct % 30000) saveStatusTask();
 
 }
 
@@ -353,16 +317,10 @@ void setup() {
 
     periodicalAirFlow();
 
-
-
 }
 
-// 设定温度,当前温度,当前湿度
-// 阶段倒计时
-// 风扇状态：HFan CFan
 
 process tempahP;
-
 
 //调整到目标温度后gap >1 才调整
 void pidTemControl(double target) {
@@ -420,9 +378,7 @@ void pidTemControl(double target) {
 
         heaterOpen();
         fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
-
-    }//制冷
-    else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {
+    }else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {//制冷
         Serial.println("cooler and Output:" + (String) Output + " elapsed:" + (String) elapsed);
         heaterOff();
         fanOff(HEATER_PWM_PIN);
@@ -509,30 +465,14 @@ void loop() {
 }
 
 void MainTask() {
-
-    int size = 0;
-    static int i = 0;
-
-    if (keymode == 0) {
-        tempahP = CustomProcess[i];
-        size = ArrayLength(CustomProcess);
-    } else if (keymode == 1) {
-        tempahP = TempahProcess[i];
-        size = ArrayLength(TempahProcess);
-    }
-
+    tempahP = CustomProcess[0];
     pidTemControl(tempahP.targetTemp);
     tempahP.active_time += UPDATE_INTERVAL;
     Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
-
-    if (tempahP.active_time > TempahProcess[i].time_sec)
-        i += 1;
-    if (i > size) i = size;
     //delay(UPDATE_INTERVAL);
 }
 
-void keyPressCheck() {
-
+void keyPressCheckTask() {
     if (digitalRead(UP_KEY_PIN) == HIGH) { // 若按键被按下
         delay(50); //等待跳过按键抖动的不稳定过程
         if (digitalRead(UP_KEY_PIN) == HIGH) // 若按键被按下
