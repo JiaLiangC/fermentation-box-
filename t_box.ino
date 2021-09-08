@@ -105,7 +105,6 @@ const int HEATER_PWM_PIN = 9;        // Timer1 pwm pin 制热风扇转速
 const int COOLER_PWM_PIN = 10;      // Timer1 pwm pin 制冷风扇转速
 const int COOLER_POWER_PIN = 12;    // Fan power ssr switch
 
-
 const int UP_KEY_PIN = 8;
 const int DOWN_KEY_PIN = 13;
 
@@ -213,7 +212,7 @@ void ariFlowTask() {
     double elapsed = millis() - windowStartTime;
 
     if ((elapsed < pulse_ration) && heaterStatus == 0) {
-        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 160);//48%
     } else {
         //运行2分钟后，停4分钟, 已经停止了的状态就不停
         fanOff(HEATER_PWM_PIN);
@@ -366,15 +365,15 @@ void pidTemControl(double target) {
         fanOff(COOLER_PWM_PIN);
 
         heaterOpen();
-        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 120);//48%
+        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
     }else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {//制冷
         Serial.println("cooler and Output:" + (String) Output + " elapsed:" + (String) elapsed);
         heaterOff();
         fanOff(HEATER_PWM_PIN);
 
         coolerOpen();
-        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 130);//48%
-        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 150);//48%
+        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 180);//48%
+        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
     } else if (abs(Output) < elapsed) {
         Serial.println("(Output < millis() - windowStartTime :output:" + (String) Output + " current_temp:" +
                        (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
