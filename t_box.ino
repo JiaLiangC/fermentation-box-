@@ -203,8 +203,8 @@ void ariFlowTask() {
     static unsigned long ariFlowWindowStartTime = 0;
 
     // 学习数字PID控制中的窗口PWM控制法
-    long ariFlowWindowSize = 6 * MINUTES;
-    long pulse_ration = 2 * MINUTES;
+    long ariFlowWindowSize = 40 * MINUTES;
+    long pulse_ration = 5 * MINUTES;
 
     if (millis() - ariFlowWindowStartTime > ariFlowWindowSize) { //time to shift the Relay Window
         ariFlowWindowStartTime += ariFlowWindowSize;
@@ -219,12 +219,12 @@ void ariFlowTask() {
     }
 }
 
-void periodicalAirFlow() {
+void periodicalExecutorOpen() {
     MsTimer2::set(50, executeTasks); // 50ms period
     MsTimer2::start();
 }
 
-void periodicalAirFlowOff() {
+void periodicalExecutorOff() {
     MsTimer2::set(50, executeTasks); // 50ms period
     MsTimer2::stop();
 }
@@ -277,10 +277,10 @@ void executeTasks() {
     //if (ct % 6 == 0) MainTask();
 
     //2个周期执行一次，2s 一次
-    //if (ct % 40 == 0) ariFlowTask();
+    if (ct % 40 == 0) ariFlowTask();
 
     //100个周期，1x1000ms*60*5,25min 一次
-    //if (ct % 30000) saveStatusTask();
+    if (ct % 30000) saveStatusTask();
 
 }
 
@@ -304,7 +304,7 @@ void setup() {
 
     keyInit();
 
-    periodicalAirFlow();
+    periodicalExecutorOpen();
 
 }
 
