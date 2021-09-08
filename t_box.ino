@@ -8,8 +8,7 @@
 #include <PID_v1.h>
 #include <EEPROM.h>
 
-#define PIN_INPUT 0
-#define PIN_OUTPUT 3
+
 #define ArrayLength(x) (sizeof(x)/sizeof(x[0]))
 
 
@@ -106,11 +105,10 @@ const int HEATER_PWM_PIN = 9;        // Timer1 pwm pin 制热风扇转速
 const int COOLER_PWM_PIN = 10;      // Timer1 pwm pin 制冷风扇转速
 const int COOLER_POWER_PIN = 12;    // Fan power ssr switch
 
-const int MODE_KEY_PIN = 11;
+
 const int UP_KEY_PIN = 8;
 const int DOWN_KEY_PIN = 13;
 
-static unsigned int  keymode = 0;
 
 #define heaterPin A0    //PTC  heater switch pin
 #define coolerPin A1    //PTC  heater switch pin
@@ -142,7 +140,6 @@ typedef struct {
 
 
 void keyInit() {
-    pinMode(MODE_KEY_PIN, INPUT); //设置按键管脚上拉输入模式
     pinMode(UP_KEY_PIN, INPUT); //设置按键管脚上拉输入模式
     pinMode(DOWN_KEY_PIN, INPUT); //设置按键管脚上拉输入模式
 }
@@ -308,12 +305,6 @@ void setup() {
 
     keyInit();
 
-    if(digitalRead(MODE_KEY_PIN) == HIGH){
-        Serial.println("0000000000");
-    }else{
-        Serial.println("1111111111");
-    }
-
     periodicalAirFlow();
 
 }
@@ -466,7 +457,7 @@ void loop() {
 
 void MainTask() {
     process tempahP = CustomProcess[0];
-//    pidTemControl(tempahP.targetTemp);
+    pidTemControl(tempahP.targetTemp);
     tempahP.active_time += UPDATE_INTERVAL;
     Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
     Serial.println("asdfafsfs");
