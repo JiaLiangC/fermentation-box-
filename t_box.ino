@@ -274,8 +274,6 @@ void executeTasks() {
 
     if (ct % 4 == 0) keyPressCheckTask();
 
-    //if (ct % 6 == 0) MainTask();
-
     //2个周期执行一次，2s 一次
     if (ct % 40 == 0) ariFlowTask();
 
@@ -372,7 +370,7 @@ void pidTemControl(double target) {
         fanOff(HEATER_PWM_PIN);
 
         coolerOpen();
-        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 180);//48%
+        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 100);//48%
         fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
     } else if (abs(Output) < elapsed) {
         Serial.println("(Output < millis() - windowStartTime :output:" + (String) Output + " current_temp:" +
