@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <Wire.h>
-#include <DallasTemperature.h>
+//#include <Wire.h>
+//#include <DallasTemperature.h>
 #include <Adafruit_AHTX0.h>
 //#include <uFire_SHT20.h>
 #include <Adafruit_PCD8544.h>
@@ -112,9 +112,9 @@ const int DOWN_KEY_PIN = 13;
 #define heaterPin A0    //PTC  heater switch pin
 #define coolerPin A1    //PTC  heater switch pin
 
-#define ONE_WIRE_BUS  A3              //ds18b20 pin
-OneWire oneWire(ONE_WIRE_BUS);       //声明
-DallasTemperature sensors(&oneWire); //声明
+//#define ONE_WIRE_BUS  A3              //ds18b20 pin
+//OneWire oneWire(ONE_WIRE_BUS);       //声明
+//DallasTemperature sensors(&oneWire); //声明
 
 Adafruit_AHTX0 aht;
 
@@ -262,7 +262,7 @@ void readAndRecover() {
         EEPROM.get(eeAddr, CProcess);
         CustomProcess[0] = CProcess[0];
     } else {
-        Serial.println("no data save in eepRom");
+        //Serial.println("no data save in eepRom");
     }
 }
 
@@ -275,7 +275,7 @@ void executeTasks() {
     if (ct % 4 == 0) keyPressCheckTask();
 
     //2个周期执行一次，2s 一次
-    if (ct % 40 == 0) ariFlowTask();
+    //if (ct % 40 == 0) ariFlowTask();
 
     //100个周期，1x1000ms*60*5,25min 一次
     if (ct % 30000) saveStatusTask();
@@ -284,7 +284,7 @@ void executeTasks() {
 
 
 void setup() {
-    Serial.begin(9600);
+    //Serial.begin(9600);
 
     aht.begin(); //Aht20Init();
 
@@ -303,7 +303,7 @@ void setup() {
     keyInit();
 
     periodicalExecutorOpen();
-
+    readAndRecover();
 }
 
 
@@ -328,7 +328,7 @@ void pidTemControl(double target) {
     }
 
     if (gap <= offset) {
-        Serial.println("(gap<=offset  gap:" + (String) gap + " offset:" + (String) offset);
+        //Serial.println("(gap<=offset  gap:" + (String) gap + " offset:" + (String) offset);
         coolerOff();
         //digitalWrite(coolerPin, LOW);
         heaterOff();
@@ -340,7 +340,7 @@ void pidTemControl(double target) {
 
     //走到这里说明 gap>1.5 了，就重置T 为0 ，这样小的误差也会走过去
     offset = 0;
-    Serial.println("current_temp:" + (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
+    //Serial.println("current_temp:" + (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
 
     if (gap < 1.5) {
         //距离目标很近，使用分段的保守的PID参数
@@ -358,14 +358,14 @@ void pidTemControl(double target) {
 
     //加热
     if ((Setpoint > current_temp) && (Output > elapsed)) {
-        Serial.println("heater and Output:" + (String) Output + " elapsed:" + (String) elapsed);
+        //Serial.println("heater and Output:" + (String) Output + " elapsed:" + (String) elapsed);
         coolerOff();
         fanOff(COOLER_PWM_PIN);
 
         heaterOpen();
         fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
     }else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {//制冷
-        Serial.println("cooler and Output:" + (String) Output + " elapsed:" + (String) elapsed);
+        //Serial.println("cooler and Output:" + (String) Output + " elapsed:" + (String) elapsed);
         heaterOff();
         fanOff(HEATER_PWM_PIN);
 
@@ -373,8 +373,8 @@ void pidTemControl(double target) {
         fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 100);//48%
         fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
     } else if (abs(Output) < elapsed) {
-        Serial.println("(Output < millis() - windowStartTime :output:" + (String) Output + " current_temp:" +
-                       (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
+        //Serial.println("(Output < millis() - windowStartTime :output:" + (String) Output + " current_temp:" +
+        //               (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
 
         coolerOff();
         heaterOff();
@@ -386,7 +386,7 @@ void pidTemControl(double target) {
 
 
 void Displaytemp(int targetTemp, int process, unsigned long activeTimeMills, unsigned long totaltimeMills) {
-    Serial.println("Displaytemp");
+    //Serial.println("Displaytemp");
     char tempStr[5];
     char humidityStr[5];
 
@@ -403,14 +403,31 @@ void Displaytemp(int targetTemp, int process, unsigned long activeTimeMills, uns
     display.println(" eC " + (String) tempStr);
 
     display.println("humidity:" + (String) humidityStr + " %RH");
-
-    display.println("proc:" + (String) process);
-
-    display.print("t:" + (String)(totaltimeMills / 1000) + "m");
-    display.print("  act:" + (String)(activeTimeMills / 1000) + "m");
+    
+    display.println("totalTime:" + millsFormat(totaltimeMills));
+    display.print("ActTime:" +millsFormat(activeTimeMills));
 
     display.display();
 
+}
+
+String millsFormat(unsigned long currentMillis){
+  unsigned long seconds = currentMillis / 1000;
+  unsigned long minutes = seconds / 60;
+  unsigned long hours = minutes / 60;
+  unsigned long days = hours / 24;
+  currentMillis %= 1000;
+  seconds %= 60;
+  minutes %= 60;
+  hours %= 24;
+  String timeStr; 
+  if(hours==0){
+      if(minutes==0){
+        return timeStr=(String)seconds + "s";
+      }
+     return timeStr=(String)minutes +"m:"+ (String)seconds + "s";
+   }  
+  return timeStr=(String)hours +"h:"+(String)minutes +"m:"+ (String)seconds + "s";
 }
 
 void heaterOpen() {
@@ -440,13 +457,13 @@ unsigned long CalculateRPM(int pin) {
 }
 
 
-float get18b20tempC() {
-    // Serial.println("发起温度转换");
-    sensors.requestTemperatures(); //向总线上所有设备发送温度转换请求，默认情况下该方法会阻塞
-    float tempC = sensors.getTempCByIndex(0); //获取索引号0的传感器摄氏温度数据
-    //if (tempC != DEVICE_DISCONNECTED_C) //如果获取到的温度正常
-    return tempC;
-}
+//float get18b20tempC() {
+//    // Serial.println("发起温度转换");
+//    sensors.requestTemperatures(); //向总线上所有设备发送温度转换请求，默认情况下该方法会阻塞
+//    float tempC = sensors.getTempCByIndex(0); //获取索引号0的传感器摄氏温度数据
+//    //if (tempC != DEVICE_DISCONNECTED_C) //如果获取到的温度正常
+//    return tempC;
+//}
 
 void loop() {
   MainTask();
@@ -457,7 +474,6 @@ void MainTask() {
     pidTemControl(tempahP.targetTemp);
     tempahP.active_time += UPDATE_INTERVAL;
     Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
-    Serial.println("asdfafsfs");
     delay(UPDATE_INTERVAL);
 }
 
@@ -467,7 +483,7 @@ void keyPressCheckTask() {
         if (digitalRead(UP_KEY_PIN) == HIGH) // 若按键被按下
         {
             CustomProcess[0].targetTemp += 1;
-            Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
+            //Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
         }
     }
 
@@ -476,7 +492,7 @@ void keyPressCheckTask() {
         if (digitalRead(DOWN_KEY_PIN) == HIGH) // 若按键被按下
         {
             CustomProcess[0].targetTemp -= 1;
-            Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
+            //Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
         }
     }
 }
