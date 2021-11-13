@@ -232,13 +232,10 @@ void periodicalExecutorOff() {
 // TODO 外部环境温度湿度，时间单独用个Arduino 去做, 明年升级的时候换个大一点的板子
 //目前只支持天贝模式, 30度发酵13小时，25度发酵18小时
 
-process CustomProcess[1]={
-        {
-                .active_time = 0,
-                .time_sec = HOUR * 24,
-                .targetTemp = 25
-
-        }
+process CustomProcess={
+    .active_time = 0,
+    .time_sec = HOUR * 24,
+    .targetTemp = 25
 };
 
 void saveStatusTask() {
@@ -253,14 +250,14 @@ void readAndRecover() {
     int eeAddr = 0;
     int flag = 0;
 
-    process CProcess[1];
+    process CProcess;
     EEPROM.get(eeAddr, flag);
 
     eeAddr += sizeof(int);
     //存储过数据
     if (flag == 123) {
         EEPROM.get(eeAddr, CProcess);
-        CustomProcess[0] = CProcess[0];
+        CustomProcess = CProcess;
     } else {
         //Serial.println("no data save in eepRom");
     }
@@ -284,7 +281,7 @@ void executeTasks() {
 
 
 void setup() {
-    //Serial.begin(9600);
+//    Serial.begin(9600);
 
     aht.begin(); //Aht20Init();
 
@@ -386,7 +383,7 @@ void pidTemControl(double target) {
 
 
 void Displaytemp(int targetTemp, int process, unsigned long activeTimeMills, unsigned long totaltimeMills) {
-    //Serial.println("Displaytemp");
+
     char tempStr[5];
     char humidityStr[5];
 
@@ -399,11 +396,11 @@ void Displaytemp(int targetTemp, int process, unsigned long activeTimeMills, uns
     display.setTextColor(BLACK);
     display.setCursor(0, 0);
 
-    display.print("tC " + (String) targetTemp);
-    display.println(" eC " + (String) tempStr);
+    display.print("tC:" + (String) targetTemp);
+    display.println(" eC:" + (String) tempStr);
 
-    display.println("humidity:" + (String) humidityStr + " %RH");
-    
+    display.println("hum:" + (String) humidityStr + " %RH");
+
     display.println("totalTime:" + millsFormat(totaltimeMills));
     display.print("ActTime:" +millsFormat(activeTimeMills));
 
@@ -419,7 +416,8 @@ String millsFormat(unsigned long currentMillis){
   currentMillis %= 1000;
   seconds %= 60;
   minutes %= 60;
-  hours %= 24;
+  //hours %= 24;
+  Serial.println((String)currentMillis+" "+(String)seconds+" "+ (String)minutes+" "+(String)hours);
   String timeStr; 
   if(hours==0){
       if(minutes==0){
@@ -470,10 +468,10 @@ void loop() {
 }
 
 void MainTask() {
-    process tempahP = CustomProcess[0];
-    pidTemControl(tempahP.targetTemp);
-    tempahP.active_time += UPDATE_INTERVAL;
-    Displaytemp(tempahP.targetTemp, 0, tempahP.active_time, tempahP.time_sec);
+
+    pidTemControl(CustomProcess.targetTemp);
+    CustomProcess.active_time += UPDATE_INTERVAL;
+    Displaytemp(CustomProcess.targetTemp, 0, CustomProcess.active_time, CustomProcess.time_sec);
     delay(UPDATE_INTERVAL);
 }
 
@@ -482,7 +480,7 @@ void keyPressCheckTask() {
         delay(50); //等待跳过按键抖动的不稳定过程
         if (digitalRead(UP_KEY_PIN) == HIGH) // 若按键被按下
         {
-            CustomProcess[0].targetTemp += 1;
+            CustomProcess.targetTemp += 1;
             //Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
         }
     }
@@ -491,7 +489,7 @@ void keyPressCheckTask() {
         delay(50); //等待跳过按键抖动的不稳定过程
         if (digitalRead(DOWN_KEY_PIN) == HIGH) // 若按键被按下
         {
-            CustomProcess[0].targetTemp -= 1;
+            CustomProcess.targetTemp -= 1;
             //Serial.println("tmp: "+ (String) CustomProcess[0].targetTemp);
         }
     }
