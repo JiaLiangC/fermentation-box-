@@ -355,20 +355,21 @@ void pidTemControl(double target) {
 
     //加热
     if ((Setpoint > current_temp) && (Output > elapsed)) {
-        //Serial.println("heater and Output:" + (String) Output + " elapsed:" + (String) elapsed);
-        coolerOff();
-        fanOff(COOLER_PWM_PIN);
+//        Serial.println("heater and Output:" + (String) Setpoint + " elapsed:" + (String) current_temp);
+        
+        //coolerOff();
+        //fanOff(COOLER_PWM_PIN);
 
         heaterOpen();
         fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
-    }else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {//制冷
-        //Serial.println("cooler and Output:" + (String) Output + " elapsed:" + (String) elapsed);
-        heaterOff();
-        fanOff(HEATER_PWM_PIN);
-
-        coolerOpen();
-        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 100);//48%
-        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
+    }else if ((Setpoint < current_temp) && (abs(Output) > elapsed)) {//暂时不需要制冷
+//        Serial.println("cooler and Output:" + (String) Setpoint + " elapsed:" + (String) current_temp);
+//        heaterOff();
+//        fanOff(HEATER_PWM_PIN);
+//
+//        coolerOpen();
+//        fanOpenWithPWMPulseRatio(COOLER_PWM_PIN, 100);//48%
+//        fanOpenWithPWMPulseRatio(HEATER_PWM_PIN, 180);//48%
     } else if (abs(Output) < elapsed) {
         //Serial.println("(Output < millis() - windowStartTime :output:" + (String) Output + " current_temp:" +
         //               (String) current_temp + " gap:" + (String) gap + " offset:" + (String) offset);
@@ -416,8 +417,6 @@ String millsFormat(unsigned long currentMillis){
   currentMillis %= 1000;
   seconds %= 60;
   minutes %= 60;
-  //hours %= 24;
-  Serial.println((String)currentMillis+" "+(String)seconds+" "+ (String)minutes+" "+(String)hours);
   String timeStr; 
   if(hours==0){
       if(minutes==0){
